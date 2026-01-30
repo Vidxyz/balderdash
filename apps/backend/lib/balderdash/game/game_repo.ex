@@ -66,8 +66,10 @@ defmodule Balderdash.Game.GameRepo do
       game_state: Atom.to_string(state.game_state),
       current_round: round_to_json(state.current_round),
       round_number: state.round_number,
-      winner: player_to_json(state.winner),
-      max_players: state.max_players
+      winners: Enum.map(state.winners || [], &player_to_json/1),
+      max_players: state.max_players,
+      last_round_score_reasons: state.last_round_score_reasons || %{},
+      funniest_votes_per_player: state.funniest_votes_per_player || %{}
     }
   end
 
@@ -110,14 +112,44 @@ defmodule Balderdash.Game.GameRepo do
       game_state: game_state_atom,
       current_round: json_to_round(json["current_round"] || json[:current_round]),
       round_number: json["round_number"] || json[:round_number] || 0,
-      winner: normalize_player(json["winner"] || json[:winner]),
-      max_players: json["max_players"] || json[:max_players] || 10
+      winners: normalize_winners(json["winners"] || json[:winners] || json["winner"] || json[:winner]),
+      max_players: json["max_players"] || json[:max_players] || 10,
+      last_round_score_reasons: normalize_score_reasons(json["last_round_score_reasons"] || json[:last_round_score_reasons] || %{}),
+      funniest_votes_per_player: normalize_funniest_votes(json["funniest_votes_per_player"] || json[:funniest_votes_per_player] || %{})
     }
   end
+
+  defp normalize_funniest_votes(map) when is_map(map) do
+    map
+    |> Enum.map(fn
+      {k, v} when is_integer(v) -> {normalize_id(k), v}
+      {k, v} when is_float(v) -> {normalize_id(k), trunc(v)}
+      {k, _} -> {normalize_id(k), 0}
+    end)
+    |> Map.new()
+  end
+  defp normalize_funniest_votes(_), do: %{}
+
+  defp normalize_score_reasons(map) when is_map(map) do
+    Map.new(map, fn
+      {k, v} when is_list(v) -> {normalize_id(k), Enum.map(v, &to_string/1)}
+      {k, v} -> {normalize_id(k), [to_string(v)]}
+    end)
+  end
+  defp normalize_score_reasons(_), do: %{}
+
+  defp normalize_id(k) when is_binary(k), do: k
+  defp normalize_id(k) when is_atom(k), do: to_string(k)
+  defp normalize_id(k), do: to_string(k)
 
   defp normalize_players(players) when is_list(players) do
     Enum.map(players, &normalize_player/1)
   end
+
+  defp normalize_winners(nil), do: []
+  defp normalize_winners([]), do: []
+  defp normalize_winners(players) when is_list(players), do: Enum.map(players, &normalize_player/1)
+  defp normalize_winners(single) when is_map(single), do: [normalize_player(single)]
 
   defp normalize_player(nil), do: nil
   defp normalize_player(player) when is_map(player) do

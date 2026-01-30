@@ -32,13 +32,10 @@ defmodule Balderdash.GameRegistry do
   end
 
   defp create_game(room_code) do
+    # GameProcess registers itself with the Registry via name: via_tuple(room_code)
     case Balderdash.GameProcess.start_link(room_code) do
-      {:ok, pid} ->
-        Registry.register(__MODULE__, room_code, pid)
-        {:ok, pid}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, pid} -> {:ok, pid}
+      {:error, reason} -> {:error, reason}
     end
   end
 end

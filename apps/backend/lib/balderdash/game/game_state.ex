@@ -9,8 +9,10 @@ defmodule Balderdash.GameState do
     :game_state,  # :lobby, :playing, :round_active, :voting, :results, :game_over
     :current_round,
     :round_number,
-    :winner,
-    :max_players
+    :winners,  # list of players who reached winning score (supports ties)
+    :max_players,
+    :last_round_score_reasons,  # %{player_id => [reason_string]} after scoring
+    :funniest_votes_per_player  # %{player_id => total_count} accumulated across rounds
   ]
 
   @type t :: %__MODULE__{
@@ -19,7 +21,7 @@ defmodule Balderdash.GameState do
     game_state: atom(),
     current_round: round() | nil,
     round_number: integer(),
-    winner: player() | nil,
+    winners: list(player()),
     max_players: integer()
   }
 
@@ -59,8 +61,10 @@ defmodule Balderdash.GameState do
       game_state: :lobby,
       current_round: nil,
       round_number: 0,
-      winner: nil,
-      max_players: max_players
+      winners: [],
+      max_players: max_players,
+      last_round_score_reasons: %{},
+      funniest_votes_per_player: %{}
     }
   end
 
@@ -120,10 +124,44 @@ defmodule Balderdash.GameState do
   end
 
   def has_won?(state) do
-    Enum.any?(state.players, fn p -> p.points >= 25 end)
+    Enum.any?(state.players, fn p -> p.points >= 6 end)
   end
 
-  def get_winner(state) do
-    Enum.find(state.players, fn p -> p.points >= 25 end)
+  def get_winners(state) do
+    Enum.filter(state.players, fn p -> p.points >= 6 end)
+  end
+
+  # Returns the player(s) who received the most "funniest" votes over the whole game (for game-over prize)
+  def get_funniest_winner(state) do
+    map = state.funniest_votes_per_player || %{}
+    if map == %{} do
+      []
+    else
+      max_count = Enum.max(Map.values(map))
+      if max_count == 0 do
+        []
+      else
+        state.players
+        |> Enum.filter(fn p -> Map.get(map, p.id, 0) == max_count end)
+      end
+    end
+  end
+end
+
+defimpl Jason.Encoder, for: Balderdash.GameState do
+  def encode(state, opts) do
+    state
+    |> to_encodable_map()
+    |> Jason.Encoder.encode(opts)
+  end
+
+  defp to_encodable_map(state) do
+    map = Map.from_struct(state)
+    current_round = if map.current_round do
+      Map.drop(map.current_round, [:timer_ref])
+    else
+      map.current_round
+    end
+    %{map | current_round: current_round}
   end
 end

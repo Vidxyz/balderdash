@@ -5,11 +5,13 @@ defmodule Balderdash.Game.Scoring do
 
   @doc """
   Calculates scores for a round based on votes.
-  Returns {updated_players, score_changes_map}
+  Returns {updated_players, score_changes_map, score_reasons_map}
+  score_reasons_map: %{player_id => [reason_string]}
   """
   def calculate_scores(players, round) do
     correct_answer = round.category.answer
     roundmaster_id = round.roundmaster_id
+    player_by_id = Map.new(players, fn p -> {p.id, p} end)
 
     # Create a map of answer_id => {player_id, answer_text}
     answer_map = 
@@ -20,69 +22,70 @@ defmodule Balderdash.Game.Scoring do
       end)
       |> Map.new()
 
-    # Add the correct answer to the map
     correct_answer_id = "correct"
     answer_map = Map.put(answer_map, correct_answer_id, {nil, correct_answer})
 
-    # Initialize score changes
-    score_changes = 
-      players
-      |> Enum.map(fn p -> {p.id, 0} end)
-      |> Map.new()
+    score_changes = Enum.map(players, fn p -> {p.id, 0} end) |> Map.new()
+    score_reasons = Enum.map(players, fn p -> {p.id, []} end) |> Map.new()
 
-    # Calculate scores - first handle correct answer votes
+    # Correct answer votes: +2 each, reason "You guessed the correct answer!"
     correct_voters = 
       round.votes_correct
       |> Enum.filter(fn {_voter_id, voted_answer_id} -> voted_answer_id == correct_answer_id end)
       |> Enum.map(fn {voter_id, _} -> voter_id end)
 
-    # Give 2 points to each correct voter
-    score_changes = 
-      Enum.reduce(correct_voters, score_changes, fn voter_id, acc ->
-        Map.update(acc, voter_id, 2, &(&1 + 2))
+    {score_changes, score_reasons} =
+      Enum.reduce(correct_voters, {score_changes, score_reasons}, fn voter_id, {acc_changes, acc_reasons} ->
+        changes = Map.update(acc_changes, voter_id, 2, &(&1 + 2))
+        reasons = Map.update(acc_reasons, voter_id, ["You guessed the correct answer!"], fn list -> ["You guessed the correct answer!" | list] end)
+        {changes, reasons}
       end)
 
-    # Calculate scores for incorrect answers (fooling points)
-    score_changes = 
-      Enum.reduce(answer_map, score_changes, fn {answer_id, {answer_author_id, _answer_text}}, acc ->
+    # Fooling points: +1 per *other* voter to answer author (exclude self-votes)
+    {score_changes, score_reasons} =
+      Enum.reduce(answer_map, {score_changes, score_reasons}, fn {answer_id, {answer_author_id, _answer_text}}, {acc_changes, acc_reasons} ->
         if answer_id != correct_answer_id && answer_author_id do
-          # Count votes for this incorrect answer
-          votes_count = 
+          voters = 
             round.votes_correct
-            |> Enum.filter(fn {_voter_id, voted_answer_id} -> voted_answer_id == answer_id end)
-            |> length()
-
-          # Give 1 point per voter to the answer author
+            |> Enum.filter(fn {voter_id, voted_answer_id} -> voted_answer_id == answer_id && voter_id != answer_author_id end)
+            |> Enum.map(fn {voter_id, _} -> voter_id end)
+          votes_count = length(voters)
           if votes_count > 0 do
-            Map.update(acc, answer_author_id, votes_count, &(&1 + votes_count))
+            voter_names = Enum.map(voters, fn id -> Map.get(player_by_id[id] || %{}, :name) || "Someone" end) |> Enum.join(", ")
+            reason = "#{voter_names} selected your answer"
+            changes = Map.update(acc_changes, answer_author_id, votes_count, &(&1 + votes_count))
+            reasons = Map.update(acc_reasons, answer_author_id, [reason], fn list -> [reason | list] end)
+            {changes, reasons}
           else
-            acc
+            {acc_changes, acc_reasons}
           end
         else
-          acc
+          {acc_changes, acc_reasons}
         end
       end)
 
-    # Check if anyone guessed correctly
     correct_guesses = length(correct_voters)
 
-    # If no one guessed correctly, roundmaster gets 2 points
-    score_changes = 
+    # No one guessed correctly: roundmaster gets +2, reason "No one guessed the right answer"
+    {score_changes, score_reasons} =
       if correct_guesses == 0 do
-        Map.update(score_changes, roundmaster_id, 2, &(&1 + 2))
+        changes = Map.update(score_changes, roundmaster_id, 2, &(&1 + 2))
+        reasons = Map.update(score_reasons, roundmaster_id, ["No one guessed the right answer"], fn list -> ["No one guessed the right answer" | list] end)
+        {changes, reasons}
       else
-        score_changes
+        {score_changes, score_reasons}
       end
 
-    # Apply score changes to players
     updated_players = 
-      players
-      |> Enum.map(fn player ->
+      Enum.map(players, fn player ->
         points_to_add = Map.get(score_changes, player.id, 0)
         %{player | points: player.points + points_to_add}
       end)
 
-    {updated_players, score_changes}
+    # Reverse reason lists so order is logical (correct guess first, then fooling, then roundmaster)
+    score_reasons = Map.new(score_reasons, fn {id, list} -> {id, Enum.reverse(list)} end)
+
+    {updated_players, score_changes, score_reasons}
   end
 
   defp generate_answer_id(player_id) do
