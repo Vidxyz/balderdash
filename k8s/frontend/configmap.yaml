@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: balderdash
+data:
+  VITE_API_URL: "http://backend.balderdash.svc.cluster.local:4000"
+  VITE_WS_URL: "ws://backend.balderdash.svc.cluster.local:4000/socket"

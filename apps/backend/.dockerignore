@@ -1,0 +1,11 @@
+_build
+deps
+doc
+cover
+*.ez
+*.beam
+erl_crash.dump
+*.log
+.git
+.gitignore
+README.md

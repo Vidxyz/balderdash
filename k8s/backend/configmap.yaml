@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: balderdash
+data:
+  # Short names resolve within the same namespace (e.g. balderdash) via cluster DNS
+  DATABASE_HOST: "postgres-service"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "balderdash"
+  DATABASE_USER: "postgres"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
