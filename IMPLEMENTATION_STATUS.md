@@ -79,11 +79,7 @@
    ./scripts/deploy.sh
    ```
 
-3. **Run Migrations**:
-   ```bash
-   kubectl apply -f k8s/postgres/migration-job.yaml
-   kubectl apply -f k8s/postgres/seed-job.yaml
-   ```
+3. **Migrations and seeding** run on backend app startup (seeding is a migration; idempotent).
 
 ## 📝 Notes
 

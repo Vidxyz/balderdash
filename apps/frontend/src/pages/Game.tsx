@@ -32,7 +32,9 @@ export default function Game() {
   useEffect(() => {
     if (!code) return
 
-    const socketUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:4000/socket'
+    const socketUrl =
+      import.meta.env.VITE_WS_URL ||
+      `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/socket`
     const newSocket = new Socket(socketUrl, {
       params: {},
     })

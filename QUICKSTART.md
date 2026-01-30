@@ -81,20 +81,10 @@ This will:
 After Terraform has applied (PostgreSQL is running), run migrations:
 
 ```bash
-# Get a backend pod name
-BACKEND_POD=$(kubectl get pods -n balderdash -l app=backend -o jsonpath='{.items[0].metadata.name}')
-
-# Run migrations
-kubectl exec -it $BACKEND_POD -n balderdash -- /app/bin/balderdash eval "Balderdash.Release.migrate()"
-
-# Seed the database
-kubectl exec -it $BACKEND_POD -n balderdash -- /app/bin/balderdash eval "Balderdash.Release.seed()"
-```
-
-Or create a migration job:
-
-```bash
-kubectl create job --from=cronjob/migration-job migration-job-$(date +%s) -n balderdash
+# Migrations and seeding run on backend app startup (idempotent).
+# Optional: run seed manually (e.g. for re-seeding):
+# BACKEND_POD=$(kubectl get pods -n balderdash -l app=backend -o jsonpath='{.items[0].metadata.name}')
+# kubectl exec -it $BACKEND_POD -n balderdash -- /app/bin/balderdash eval "Balderdash.Release.seed()"
 ```
 
 ## Troubleshooting

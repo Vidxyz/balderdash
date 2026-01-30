@@ -48,4 +48,5 @@ EXPOSE 4000
 ENV MIX_ENV=prod
 ENV PORT=4000
 
-CMD ["./bin/balderdash", "start"]
+# Run migrations on startup (idempotent; Ecto only runs pending migrations)
+CMD ["sh", "-c", "./bin/balderdash eval 'Balderdash.Release.migrate()' && exec ./bin/balderdash start"]

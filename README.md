@@ -33,7 +33,7 @@ cd terraform && terraform init && terraform apply && cd ..  # Provisions Redis +
 # Access at http://balderdash.local
 ```
 
-PostgreSQL and Redis are provisioned by Terraform. Terraform also creates the `backend-secrets` Kubernetes secret so `DATABASE_PASSWORD` and `REDIS_PASSWORD` match; run `terraform apply` before `deploy.sh`.
+PostgreSQL and Redis are provisioned by Terraform. Run `terraform apply` before `deploy.sh`. Backend DB credentials are in `k8s/backend/secret.yaml` (default postgres/postgres; must match Postgres).
 
 ## Development
 
