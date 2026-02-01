@@ -312,7 +312,98 @@ Channel handler uses `useGameStore.getState().setGameState(payload)` so the late
 
 ---
 
-## 9. Summary Diagram
+## 9. Hosting and Making the App Available (k3s, Cost-Minimized)
+
+This section outlines a plan to run Balderdash on **k3s** (lightweight Kubernetes) with **minimal cost**—preferring free or very cheap options.
+
+### 9.1 Why k3s
+
+- **k3s** is a single-binary, CNCF-conformant Kubernetes distribution: low memory footprint, no separate etcd (embedded DB), good for single-node or small clusters.
+- Existing **Kubernetes manifests** (namespace, backend, frontend, Postgres/Redis via Terraform or Helm) can target k3s with small adaptations (ingress class, optional Traefik instead of nginx).
+- **Single node** is enough for moderate traffic: one VM runs k3s, Postgres, Redis, backend, and frontend.
+
+### 9.2 Cost-Minimization Strategy
+
+| Area | Approach | Cost |
+|------|----------|------|
+| **Compute** | Single k3s node (1–2 vCPU, 2–4 GB RAM) | Free tier or ~\$0–5/mo |
+| **Database** | Postgres + Redis as pods on same node (no managed DB) | \$0 extra |
+| **Images** | Build on node or CI; push to free registry (GHCR, Docker Hub) | \$0 (public/free tier) |
+| **DNS** | Free subdomain or cheap domain | \$0–1/mo |
+| **TLS** | Let’s Encrypt via Traefik / cert-manager | \$0 |
+| **Outbound** | No paid APIs; optional monitoring (e.g. free tier) | \$0 |
+
+**Target: \$0/mo (free tier) or ~\$4–6/mo (cheapest VPS).**
+
+### 9.3 Free / Cheap Hosting Options
+
+**Option A: Oracle Cloud Always Free**
+
+- **Always-free tier**: 2 AMD-based VMs (1/8 OCPU, 1 GB RAM each) or 4 ARM Ampere VMs (1 OCPU, 6 GB RAM each). 200 GB block storage.
+- **Plan**: Use one ARM VM (e.g. VM.Standard.A1.Flex, 1 OCPU, 6 GB RAM)—enough for k3s + Postgres + Redis + app. Or one AMD VM if you prefer (tighter on RAM; may need to reduce replicas or use smaller Postgres/Redis).
+- **Steps**: Create VPS → install k3s → run Terraform (or Helm) for Postgres + Redis → build/push images (e.g. to GHCR) → deploy app manifests. Point DNS (or use Oracle-assigned public IP + nip.io) and enable HTTPS with Let’s Encrypt.
+- **Cost**: **\$0/mo** (within always-free limits).
+
+**Option B: Hetzner Cloud**
+
+- **CX22**: 2 vCPU, 4 GB RAM, 40 GB disk — ~€4–5/mo. Reliable, good for EU.
+- **Plan**: Single node k3s; same stack (Postgres, Redis, backend, frontend). Use Let’s Encrypt for TLS.
+- **Cost**: **~\$5/mo**.
+
+**Option C: Other free / cheap**
+
+- **Google Cloud / AWS**: Free tier or credits (time-limited); smallest instance that fits k3s + stack.
+- **Fly.io**: Free tier for small apps; can run Dockerfile; not k3s but another way to host cheaply.
+- **DigitalOcean**: ~\$6/mo for basic droplet; similar flow to Hetzner.
+
+### 9.4 k3s-Specific Setup (Single Node)
+
+1. **Provision one VM** (e.g. Oracle ARM or Hetzner CX22). Open firewall for 80, 443, and 6443 if you use remote kubectl.
+2. **Install k3s** (single server, no agents):
+   ```bash
+   curl -sfL https://get.k3s.io | sh -
+   ```
+   k3s ships with Traefik and a default IngressClass. Use it, or disable Traefik and install nginx-ingress if you prefer to match current manifests.
+3. **Terraform / Helm**: Point Terraform at k3s kubeconfig (`/etc/rancher/k3s/k3s.yaml`). Same `terraform/` modules (Postgres + Redis) apply; ensure Helm and Kubernetes providers use the k3s context.
+4. **Images**: Build backend and frontend (e.g. in CI or on the node). Push to GitHub Container Registry (GHCR) or Docker Hub (free for public). In deployment YAMLs, set `image` to the registry URL and `imagePullPolicy: Always` (or `IfNotPresent` after first pull). No need for a private registry if images are public.
+5. **Secrets**: Create `k8s/backend/secret.yaml` (or use Terraform/Kustomize) with `DATABASE_PASSWORD`, `SECRET_KEY_BASE`, optional `REDIS_PASSWORD`. Do not commit secrets; use sealed-secrets or CI-injected secrets for automation.
+6. **Ingress**:  
+   - **Traefik (k3s default)**: Define Ingress with `ingressClassName: traefik`, host set to your domain (e.g. `balderdash.example.com`). Enable TLS with Traefik’s Let’s Encrypt resolver (e.g. `certificateresolvers.letsencrypt.acme.tlschallenge`).  
+   - **Or**: Keep using nginx-ingress; add cert-manager + ClusterIssuer for Let’s Encrypt so the host is HTTPS with no cost.
+7. **DNS**: Create an A (or AAAA) record for your domain pointing to the VM’s public IP. For quick testing without a domain, use **nip.io** (e.g. `balderdash.192-168-1-1.nip.io`) or **sslip.io**; TLS with wildcards or HTTP-01 may need a real domain.
+
+### 9.5 Resource Sizing (Single Node, Cheap)
+
+- **k3s**: ~512 MB RAM.
+- **Postgres**: 256–512 Mi request; same or a bit more limit.
+- **Redis**: 256 Mi.
+- **Backend**: 1 replica (or 2 if 2+ GB free); 256 Mi each.
+- **Frontend**: 1 replica; 128 Mi.
+
+Total ~2–2.5 GB RAM. A 4 GB node is comfortable; a 6 GB (e.g. Oracle ARM) gives headroom. Reduce replicas to 1 for backend/frontend if RAM is tight.
+
+### 9.6 Making It “Available”
+
+- **Public URL**: Set Ingress host to your domain (or nip.io/sslip.io). Users open `https://your-domain` and get the React app; WebSocket and API go to same host via ingress rules (`/socket`, `/api`).
+- **TLS**: Use Let’s Encrypt (Traefik or cert-manager). Ensure backend is reachable on 443 (no mixed content); frontend already uses `window.location` for WebSocket, so same host is fine.
+- **Availability**: Single node has no HA; if the VM is down, the app is down. For “as cheap as possible,” this is acceptable. Add a second node and replicate only when you need higher availability.
+
+### 9.7 Checklist (Minimal Cost)
+
+- [ ] One VM (free tier or ~\$5/mo).
+- [ ] k3s installed; kubeconfig for Terraform/kubectl.
+- [ ] Terraform apply: Postgres + Redis in `balderdash` namespace.
+- [ ] Backend/frontend images built and pushed to GHCR or Docker Hub (free).
+- [ ] K8s manifests applied (namespace, ConfigMap, Secret, Deployments, Services, Ingress).
+- [ ] Ingress host = your domain or nip.io; TLS = Let’s Encrypt.
+- [ ] DNS A record → VM IP (if using a real domain).
+- [ ] Optional: GitHub Actions (or similar) to build and push images on push; no extra cost for public repos.
+
+Result: **Balderdash reachable at `https://your-domain` (or `https://balderdash.<ip>.nip.io`) with minimal or zero ongoing cost.**
+
+---
+
+## 10. Summary Diagram
 
 ```
                     ┌─────────────────────────────────────────────────────────┐
@@ -350,4 +441,3 @@ Channel handler uses `useGameStore.getState().setGameState(payload)` so the late
                     └────────────────────────────────────────────────────────────┘
 ```
 
-This document should give a staff/principal engineer a complete picture of how the system is designed, how it scales, how state is kept consistent, how games are saved and what happens when they end, and what to improve next (especially around player leave/abandon and cleanup).
